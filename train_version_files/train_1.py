@@ -7,7 +7,7 @@ from keras.preprocessing import *
 from keras.callbacks import *
 from keras.optimizers import *
 from tqdm import tqdm
-
+import glob
 from keras.applications.resnet50 import preprocess_input, decode_predictions
 from keras.preprocessing import image
 
@@ -16,8 +16,14 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 
 import cv2
-
+from random import choice, sample
 import datetime
+from sklearn.metrics import roc_auc_score
+from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
+import threading
+
+def auc(y_true, y_pred):
+    return tf.py_func(roc_auc_score, (y_true, y_pred), tf.double)
 
 if os.path.exists("logs"):
     pass
@@ -55,59 +61,112 @@ ROOT = "/home/datumx/data_science_experiments/detect_kinship/"
 # data_train.to_csv("tr_data.csv",index=False)
 # data_valid.to_csv("val_data.csv",index=False)
 
-data_train = pd.read_csv("/home/datumx/data_science_experiments/detect_kinship/tr_data.csv")
-data_valid = pd.read_csv("/home/datumx/data_science_experiments/detect_kinship/val_data.csv")
+# ddef read_img(path):
+#     img = cv2.imread(path)
+#     img = np.array(img).astype(np.float)
+#     return preprocess_input(img,version=2)
+
+def read_img(im_path):
+    im1 = image.load_img(im_path, target_size=(224, 224))
+    im1 = image.img_to_array(im1)
+    im1 = np.expand_dims(im1, axis=0)
+    im1 = preprocess_input(im1,mode='tf')
+    return im1[0]
 
 
-def batch_generator(names,batch_size):
-    total_range = np.arange(len(names)).tolist()
-    if len(names)%batch_size != 0:
-        to_add = batch_size - ((len(names))%batch_size)
-        total_range = total_range + np.random.choice(total_range,to_add,replace=False).tolist()
-    total_range = np.array(total_range)
-    np.random.shuffle(total_range)
-    temp_df = pd.DataFrame(total_range)
+from collections import defaultdict
+#keeps all photos path in a dictionary
+allPhotos = defaultdict(list)
+for family in glob.glob(ROOT+"train/*"):
+    for mem in glob.glob(family+'/*'):
+        for photo in glob.glob(mem+'/*'):
+            allPhotos[mem].append(photo)
+
+#list of all members with valid photo
+ppl = list(allPhotos.keys())
+len(ppl)
+
+data = pd.read_csv(ROOT+'train_relationships.csv')
+data.p1 = data.p1.apply( lambda x: ROOT+'train/'+x )
+data.p2 = data.p2.apply( lambda x: ROOT+'train/'+x )
+print(data.shape)
+data.head()
+
+data = data[ ( (data.p1.isin(ppl)) & (data.p2.isin(ppl)) ) ]
+data = [ ( x[0], x[1]  ) for x in data.values ]
+len(data)
+
+train = [ x for x in data if 'F09' not in x[0]  ]
+val = [ x for x in data if 'F09' in x[0]  ]
+len(train), len(val)
+
+def getImages(p1,p2):
+    p1 = read_img(choice(allPhotos[p1]))
+    p2 = read_img(choice(allPhotos[p2]))
+    return p1,p2
+
+def getMiniBatch(batch_size=16, data=train):
+    p1 = []; p2 = []; Y = []
+    batch = sample(data, batch_size//2)
+    for x in batch:
+        _p1, _p2 = getImages(*x)
+        p1.append(_p1);p2.append(_p2);Y.append(1)
+    while len(Y) < batch_size:
+        _p1,_p2 = tuple(np.random.choice(ppl,size=2, replace=False))
+        if (_p1,_p2) not in train+val and (_p2,_p1) not in train+val:
+            _p1,_p2 = getImages(_p1,_p2)
+            p1.append(_p1);p2.append(_p2);Y.append(0) 
+    return [np.array(p1),np.array(p2)], np.array(Y)
+
+# def batch_generator(names,batch_size):
+#     total_range = np.arange(len(names)).tolist()
+#     if len(names)%batch_size != 0:
+#         to_add = batch_size - ((len(names))%batch_size)
+#         total_range = total_range + np.random.choice(total_range,to_add,replace=False).tolist()
+#     total_range = np.array(total_range)
+#     np.random.shuffle(total_range)
+#     temp_df = pd.DataFrame(total_range)
     
-    temp_df.columns = ["batch"]
-    temp_df["batch_ind"] = temp_df.index 
-    temp_df["batch_ind"] = (temp_df["batch_ind"].astype('int')) //batch_size
+#     temp_df.columns = ["batch"]
+#     temp_df["batch_ind"] = temp_df.index 
+#     temp_df["batch_ind"] = (temp_df["batch_ind"].astype('int')) //batch_size
 
-    return temp_df.groupby('batch_ind')['batch'].apply(list).values
-
-
+#     return temp_df.groupby('batch_ind')['batch'].apply(list).values
 
 
-def generator(names,batches,batch_size):
-    batch_num = 0
-    while True:
+
+
+# def generator(names,batches,batch_size):
+#     batch_num = 0
+#     while True:
         
-        if batch_num >= len(names)/batch_size:
-            batch_num = 0
-        imgs1 = []
-        imgs2 = []
-        labels = []
-#         print(batch_num)
-        batch = batches[batch_num]
-        for i in range(batch_size):
-#             print (train_names[batch[i]][0], train_names[batch[i]][1],train_names[batch[i]][2] )
-            img_name1 = names[batch[i]][0]
-            img_name2 = names[batch[i]][1]
-            label = names[batch[i]][2]
-            im1 = image.load_img(ROOT+img_name1, target_size=(224, 224))
-            im1 = image.img_to_array(im1)
-            im1 = np.expand_dims(im1, axis=0)
-            im1 = preprocess_input(im1,mode='tf')
+#         if batch_num >= len(names)/batch_size:
+#             batch_num = 0
+#         imgs1 = []
+#         imgs2 = []
+#         labels = []
+# #         print(batch_num)
+#         batch = batches[batch_num]
+#         for i in range(batch_size):
+# #             print (train_names[batch[i]][0], train_names[batch[i]][1],train_names[batch[i]][2] )
+#             img_name1 = names[batch[i]][0]
+#             img_name2 = names[batch[i]][1]
+#             label = names[batch[i]][2]
+#             im1 = image.load_img(ROOT+img_name1, target_size=(224, 224))
+#             im1 = image.img_to_array(im1)
+#             im1 = np.expand_dims(im1, axis=0)
+#             im1 = preprocess_input(im1,mode='tf')
             
-            im2 = image.load_img(ROOT+img_name2, target_size=(224, 224))
-            im2 = image.img_to_array(im2)
-            im2 = np.expand_dims(im2, axis=0)
-            im2 = preprocess_input(im2,mode='tf')
+#             im2 = image.load_img(ROOT+img_name2, target_size=(224, 224))
+#             im2 = image.img_to_array(im2)
+#             im2 = np.expand_dims(im2, axis=0)
+#             im2 = preprocess_input(im2,mode='tf')
 
-            imgs1.append(im1[0])
-            imgs2.append(im2[0])
-            labels.append(label)
-        batch_num += 1    
-        yield [np.array(imgs1),np.array(imgs2)], np.array(labels)    
+#             imgs1.append(im1[0])
+#             imgs2.append(im2[0])
+#             labels.append(label)
+#         batch_num += 1    
+#         yield [np.array(imgs1),np.array(imgs2)], np.array(labels)    
         
         
         
@@ -195,16 +254,23 @@ out = Dense(1, activation="sigmoid")(x)
 
 model = Model([input_a, input_b], out)
 
-model.compile(loss="binary_crossentropy", metrics=['acc'], optimizer=Adam(0.001))
+model.compile(loss="binary_crossentropy", metrics=['acc',auc], optimizer=Adam(0.0001))
 
 
-model.load_weights("/home/datumx/data_science_experiments/detect_kinship/logs/kin_relation_2019_05_28_21_53_51966472/siamese_kins_detection_13-val_loss_0.4720-val_acc_0.7680.h5")
+# model.load_weights("/home/datumx/data_science_experiments/detect_kinship/logs/kin_relation_2019_05_28_21_53_51966472/siamese_kins_detection_13-val_loss_0.4720-val_acc_0.7680.h5")
 # train
 
 
 print(model.summary())
-train_batches =batch_generator(data_train,batch_size=8)
-valid_batches =batch_generator(data_valid,batch_size=8)
+# train_batches =batch_generator(data_train,batch_size=8)
+# valid_batches =batch_generator(data_valid,batch_size=8)
 
-model.fit_generator(generator(data_train.values,train_batches,batch_size=8),steps_per_epoch=24000,
-          epochs=30,validation_data=generator(data_valid.values,valid_batches,batch_size=8),validation_steps=250,callbacks=callbacks)
+def Generator(batch_size, data ):
+    while True:
+        yield getMiniBatch(batch_size=batch_size, data=data)
+
+train_gen = Generator(batch_size=16,data=train)
+val_gen = Generator(batch_size=16,data=val)
+
+model.fit_generator(train_gen,steps_per_epoch=200,use_multiprocessing=True,
+          epochs=100,validation_data=val_gen,validation_steps=250,callbacks=callbacks)
