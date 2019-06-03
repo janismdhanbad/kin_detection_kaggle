@@ -9,6 +9,9 @@ from keras.optimizers import *
 from tqdm import tqdm
 import glob
 from keras.applications.resnet50 import preprocess_input, decode_predictions
+
+# from keras.applications.nasnet import preprocess_input, decode_predictions
+# from keras.applications.densenet import preprocess_input, decode_predictions
 from keras.preprocessing import image
 
 from sklearn.model_selection import train_test_split
@@ -24,6 +27,10 @@ import threading
 
 def auc(y_true, y_pred):
     return tf.py_func(roc_auc_score, (y_true, y_pred), tf.double)
+
+
+print("start training.....................................")
+print("start training.....................................")
 
 if os.path.exists("logs"):
     pass
@@ -191,7 +198,7 @@ def contrastive_loss(y_true, y_pred):
     return K.mean(y_true * sqaure_pred + (1 - y_true) * margin_square)
 
 def create_base_network(input_shape):
-    out = keras.applications.ResNet50(include_top=False,input_shape=(224,224,3))
+    out = keras.applications.inception_resnet_v2.InceptionResNetV2(include_top=False,input_shape=(224,224,3))
     return Model(out.input,out.output)
 
 def compute_accuracy(y_true, y_pred):
@@ -248,6 +255,47 @@ x = Multiply()([x1, x2])
 
 x = Concatenate(axis=-1)([x, x3])
 
+# x = BatchNormalization()(x) #new change
+# x = Dense(64, activation="relu")(x)
+# x = Dropout(0.2)(x)
+# x = Dense(64, activation="relu")(x)
+# x = Dropout(0.2)(x)
+# out = Dense(1, activation="sigmoid")(x)
+
+# model = Model([input_a, input_b], out)
+
+# model.compile(loss="binary_crossentropy", metrics=['acc',auc], optimizer=Adam(0.001))
+
+
+# # model.load_weights("/home/datumx/data_science_experiments/detect_kinship/logs/kin_relation_2019_05_28_21_53_51966472/siamese_kins_detection_13-val_loss_0.4720-val_acc_0.7680.h5")
+# # train
+
+
+# print(model.summary())
+# # train_batches =batch_generator(data_train,batch_size=8)
+# # valid_batches =batch_generator(data_valid,batch_size=8)
+
+# def Generator(batch_size, data ):
+#     while True:
+#         yield getMiniBatch(batch_size=batch_size, data=data)
+
+# train_gen = Generator(batch_size=4,data=train)
+# val_gen = Generator(batch_size=4,data=val)
+
+# print("start training.....................................")
+
+
+
+# model.fit_generator(train_gen,steps_per_epoch=1000,use_multiprocessing=True,
+#           epochs=10,validation_data=val_gen,validation_steps=200,callbacks=callbacks,initial_epoch=0)
+
+# model.compile(loss="binary_crossentropy", metrics=['acc',auc], optimizer=Adam(0.0001))
+
+
+# model.fit_generator(train_gen,steps_per_epoch=1000,use_multiprocessing=True,
+#           epochs=100,validation_data=val_gen,validation_steps=200,callbacks=callbacks,initial_epoch=10)
+
+
 x = Dense(100, activation="relu")(x)
 x = Dropout(0.01)(x)
 out = Dense(1, activation="sigmoid")(x)
@@ -269,8 +317,9 @@ def Generator(batch_size, data ):
     while True:
         yield getMiniBatch(batch_size=batch_size, data=data)
 
-train_gen = Generator(batch_size=16,data=train)
-val_gen = Generator(batch_size=16,data=val)
+train_gen = Generator(batch_size=4,data=train)
+val_gen = Generator(batch_size=4,data=val)
 
-model.fit_generator(train_gen,steps_per_epoch=200,use_multiprocessing=True,
+model.fit_generator(train_gen,steps_per_epoch=1000,use_multiprocessing=True,
           epochs=100,validation_data=val_gen,validation_steps=250,callbacks=callbacks)
+

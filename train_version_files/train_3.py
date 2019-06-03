@@ -1,0 +1,199 @@
+import pandas as pd
+import pandas as pd
+import numpy as np
+import keras
+from keras.models import *
+from keras.layers import *
+from keras.preprocessing import *
+from keras.callbacks import *
+from keras.optimizers import *
+from tqdm import tqdm
+import glob
+from keras.applications.resnet50 import preprocess_input, decode_predictions
+
+# from keras.applications.nasnet import preprocess_input, decode_predictions
+# from keras.applications.densenet import preprocess_input, decode_predictions
+from keras.preprocessing import image
+
+from sklearn.model_selection import train_test_split
+
+import matplotlib.pyplot as plt
+
+import cv2
+from random import choice, sample
+import datetime
+from sklearn.metrics import roc_auc_score
+from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
+import threading
+
+def auc(y_true, y_pred):
+    return tf.py_func(roc_auc_score, (y_true, y_pred), tf.double)
+
+
+print("start training.....................................")
+print("start training.....................................")
+
+if os.path.exists("logs"):
+    pass
+else:
+    os.mkdir("logs")
+log_dir = "/home/datumx/data_science_experiments/detect_kinship/logs/"+"kin_relation" + "_" + str(datetime.datetime.now()).replace(" ","-").replace(":","-").replace(".","").replace("-","_")
+os.mkdir(log_dir)
+
+ROOT = "/home/datumx/data_science_experiments/detect_kinship/"
+
+
+def read_img(im_path):
+    im1 = image.load_img(im_path, target_size=(224, 224))
+    im1 = image.img_to_array(im1)
+    im1 = np.expand_dims(im1, axis=0)
+    im1 = preprocess_input(im1)
+    return im1[0]
+
+
+from collections import defaultdict
+#keeps all photos path in a dictionary
+allPhotos = defaultdict(list)
+for family in glob.glob(ROOT+"train/*"):
+    for mem in glob.glob(family+'/*'):
+        for photo in glob.glob(mem+'/*'):
+            allPhotos[mem].append(photo)
+
+#list of all members with valid photo
+ppl = list(allPhotos.keys())
+len(ppl)
+
+data = pd.read_csv(ROOT+'train_relationships.csv')
+data.p1 = data.p1.apply( lambda x: ROOT+'train/'+x )
+data.p2 = data.p2.apply( lambda x: ROOT+'train/'+x )
+print(data.shape)
+data.head()
+
+data = data[ ( (data.p1.isin(ppl)) & (data.p2.isin(ppl)) ) ]
+data = [ ( x[0], x[1]  ) for x in data.values ]
+len(data)
+
+train = [ x for x in data if 'F09' not in x[0]  ]
+val = [ x for x in data if 'F09' in x[0]  ]
+len(train), len(val)
+
+def getImages(p1,p2):
+    p1 = read_img(choice(allPhotos[p1]))
+    p2 = read_img(choice(allPhotos[p2]))
+    return p1,p2
+
+def getMiniBatch(batch_size=16, data=train):
+    p1 = []; p2 = []; Y = []
+    batch = sample(data, batch_size//2)
+    for x in batch:
+        _p1, _p2 = getImages(*x)
+        p1.append(_p1);p2.append(_p2);Y.append(1)
+    while len(Y) < batch_size:
+        _p1,_p2 = tuple(np.random.choice(ppl,size=2, replace=False))
+        if (_p1,_p2) not in train+val and (_p2,_p1) not in train+val:
+            _p1,_p2 = getImages(_p1,_p2)
+            p1.append(_p1);p2.append(_p2);Y.append(0) 
+    return [np.array(p1),np.array(p2)], np.array(Y)
+
+
+        
+        
+def euclidean_distance(vects):
+    x, y = vects
+    sum_square = K.sum(K.square(x - y), axis=1, keepdims=True)
+    return K.sqrt(K.maximum(sum_square, K.epsilon()))
+
+
+def eucl_dist_output_shape(shapes):
+    shape1, shape2 = shapes
+    return (shape1[0], 1)
+
+
+def contrastive_loss(y_true, y_pred):
+    '''Contrastive loss from Hadsell-et-al.'06
+    http://yann.lecun.com/exdb/publis/pdf/hadsell-chopra-lecun-06.pdf
+    '''
+    margin = 1
+    sqaure_pred = K.square(y_pred)
+    margin_square = K.square(K.maximum(margin - y_pred, 0))
+    return K.mean(y_true * sqaure_pred + (1 - y_true) * margin_square)
+
+def create_base_network(input_shape):
+    out = keras.applications.ResNet50(include_top=False,input_shape=(224,224,3))
+    return Model(out.input,out.output)
+
+def compute_accuracy(y_true, y_pred):
+    '''Compute classification accuracy with a fixed threshold on distances.
+    '''
+    pred = y_pred.ravel() < 0.5
+    return np.mean(pred == y_true)
+
+
+def accuracy(y_true, y_pred):
+    '''Compute classification accuracy with a fixed threshold on distances.
+    '''
+    return K.mean(K.equal(y_true, K.cast(y_pred < 0.5, y_true.dtype)))
+
+input_shape = (224,224,3)
+
+input_a = Input(shape=input_shape)
+input_b = Input(shape=input_shape)
+
+base_network = create_base_network(input_shape)
+
+# because we re-use the same instance `base_network`,
+# the weights of the network
+# will be shared across the two branches
+processed_a = base_network(input_a)
+processed_b = base_network(input_b)
+
+distance = Lambda(euclidean_distance,
+                  output_shape=eucl_dist_output_shape)([processed_a, processed_b])
+
+model = Model([input_a, input_b], distance)
+
+
+print("start training.....................................")
+checkpoint_path = log_dir+ "/siamese_"+"kins_detection"+"_{epoch:02d}-val_loss_{val_loss:.4f}-val_acc_{val_acc:.4f}.h5"
+
+callbacks = [keras.callbacks.EarlyStopping(monitor='val_loss',
+                           patience=8,
+                           verbose=1,
+                           min_delta=1e-4),
+             keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
+                               factor=0.1,
+                               patience=4,
+                               verbose=1,
+                               epsilon=1e-4),
+            keras.callbacks.TensorBoard(log_dir=log_dir,
+                                        histogram_freq=0, write_graph=True, write_images=False),
+            keras.callbacks.ModelCheckpoint(checkpoint_path,
+                                            verbose=0, save_weights_only=True),
+        ]
+
+
+model.compile(loss=contrastive_loss, optimizer=Adam(0.001), metrics=[accuracy,auc])
+
+print(model.summary())
+# train_batches =batch_generator(data_train,batch_size=8)
+# valid_batches =batch_generator(data_valid,batch_size=8)
+
+def Generator(batch_size, data ):
+    while True:
+        yield getMiniBatch(batch_size=batch_size, data=data)
+
+train_gen = Generator(batch_size=8,data=train)
+val_gen = Generator(batch_size=8,data=val)
+
+print("start training.....................................")
+
+
+model.fit_generator(train_gen,steps_per_epoch=600,use_multiprocessing=True,
+          epochs=10,validation_data=val_gen,validation_steps=200,callbacks=callbacks,initial_epoch=0)
+
+model.compile(loss=contrastive_loss, metrics=[accuracy,auc], optimizer=Adam(0.0001))
+
+
+model.fit_generator(train_gen,steps_per_epoch=600,use_multiprocessing=True,
+          epochs=100,validation_data=val_gen,validation_steps=200,callbacks=callbacks,initial_epoch=10)
+
