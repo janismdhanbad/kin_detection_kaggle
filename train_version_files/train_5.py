@@ -33,6 +33,43 @@ from sklearn.metrics import roc_auc_score
 from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 import threading
 
+from keras.initializers import glorot_normal
+
+def outer_product(x):
+    """
+    calculate outer-products of 2 tensors
+
+        args 
+            x
+                list of 2 tensors
+                , assuming each of which has shape = (size_minibatch, total_pixels, size_filter)
+    """
+    return keras.backend.batch_dot(
+                x[0]
+                , x[1]
+                , axes=[1,1]
+            ) / x[0].get_shape().as_list()[1] 
+
+def signed_sqrt(x):
+    """
+    calculate element-wise signed square root
+
+        args
+            x
+                a tensor
+    """
+    return keras.backend.sign(x) * keras.backend.sqrt(keras.backend.abs(x) + 1e-9)
+
+def L2_norm(x, axis=-1):
+    """
+    calculate L2-norm
+
+        args 
+            x
+                a tensor
+    """
+    return keras.backend.l2_normalize(x, axis=axis)
+
 def auc(y_true, y_pred):
     return tf.py_func(roc_auc_score, (y_true, y_pred), tf.double)
 
@@ -384,20 +421,40 @@ base_network = create_base_network(input_shape)
 processed_a = base_network(input_a)
 processed_b = base_network(input_b)
 
-x1 = Concatenate(axis=-1)([GlobalMaxPool2D()(processed_a), GlobalAvgPool2D()(processed_a)])
-x2 = Concatenate(axis=-1)([GlobalMaxPool2D()(processed_b), GlobalAvgPool2D()(processed_b)])
 
-x3 = Subtract()([x1, x2])
-x3 = Multiply()([x3, x3])
+# extract features from detector
+x_detector = processed_a
+shape_detector = processed_a.shape
 
-x = Multiply()([x1, x2])
+# extract features from extractor , same with detector for symmetry DxD model
+shape_extractor = processed_b.shape
+x_extractor = processed_b
 
-x = Concatenate(axis=-1)([x, x3])
+# rehape to (minibatch_size, total_pixels, filter_size)
+x_detector = keras.layers.Reshape([shape_detector[1] * shape_detector[2] , shape_detector[-1]])(x_detector)
+x_extractor = keras.layers.Reshape([shape_extractor[1] * shape_extractor[2] , shape_extractor[-1]])(x_extractor)
 
+# outer products of features, output shape=(minibatch_size, filter_size_detector*filter_size_extractor)
+x = keras.layers.Lambda(outer_product)([x_detector, x_extractor])
+
+# rehape to (minibatch_size, filter_size_detector*filter_size_extractor)
+x = keras.layers.Reshape([shape_detector[-1]*shape_extractor[-1]])(x)
+# signed square-root 
+
+x = keras.layers.Lambda(signed_sqrt)(x)
+# L2 normalization
+x = keras.layers.Lambda(L2_norm)(x)
+
+### 
+### attach FC-Layer
+###
 
 x = Dense(100, activation="relu")(x)
 x = Dropout(0.01)(x)
-out = Dense(1, activation="sigmoid")(x)
+
+out = Dense(units=1,kernel_regularizer=keras.regularizers.l2(1e-8),kernel_initializer='glorot_normal',activation="sigmoid")(x)
+
+
 
 model = Model([input_a, input_b], out)
 
