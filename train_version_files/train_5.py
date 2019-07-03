@@ -458,7 +458,7 @@ out = Dense(units=1,kernel_regularizer=keras.regularizers.l2(1e-8),kernel_initia
 
 model = Model([input_a, input_b], out)
 
-model.compile(loss="binary_crossentropy", metrics=['acc',auc], optimizer=Adam(0.001))
+model.compile(loss="binary_crossentropy", metrics=['acc',auc], optimizer=Adam(0.0001))
 
 
 # model.load_weights("/home/datumx/data_science_experiments/detect_kinship/logs/kin_relation_2019_05_28_21_53_51966472/siamese_kins_detection_13-val_loss_0.4720-val_acc_0.7680.h5")
