@@ -1,1 +1,24 @@
-readme
+
+These are the experiment files for the Kaggle competition .... The basic strategy was using a Siamesse network based architecture. The extracted features were then 
+passed through another neural net to give either a sigmoid layer kind of output or a contrastive loss output. It was observed that the one having sigmoid output performed better.
+Also, by taking pretrained models on faces, a great boost in accuracy was observed even with small image size.
+
+train0:
+Used normal Resnet with contrastive loss. The network architecture and style was derived from keras website. This performed very badly. The accuracy metric remained arounf 50 percent for a couple
+of epochs. I tried different learning rate with different optimizers but in vain. The data generator used here is my own. Might be some problem with it. Need to check it again.
+
+train1:
+The data generator is from kaggle kernel. Changed the contrastive loss function to the normal binary_crossentropy. The data generator was kaggle wala. This affected the results a lot in a positive way. Used Resnet50 as the backbone architecture. I think got around 77 AUC on the leaderboard. The ouput layers here were also derived from a kaggle discussion names .81 LB. Tried with different learning rates but got best results in 0.0001 lr. In fact, mostly lower learning rates are giving a better score.
+
+train3:
+Tried resnet50 with the data generator from kaggle. Used contrastive loss function in this one but got no success even this time. The accuracy was just not going up from .50
+
+train4:
+Used openface network architecture.
+
+train8:
+try using the facial keypoint detection from udacity as the base network. Used learning rate of .0001 with logs kin_relation_2019_06_28_00_05_42106761 and val_auc ~ .68.
+Now changing the lr to .001, very bad result, highest val auc is .59. tried 0.0004, no improvement. Increased the steps per epoch from 200 to 1000 with lr 0.0001. got 0.69 val_auc(kin_relation_2019_06_28_01_50_55130109)
+
+train9:
+try the output generated from facial keypoint detection code as one separate input vector in the openface base network. Each image will have azero-one kind of vector for facial key points. pass them as two extra inputs to the network
