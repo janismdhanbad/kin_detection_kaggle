@@ -300,7 +300,7 @@ def root_resnet_fpn(input_image,architecture="resnet50",stage5=True, train_bn=Tr
         C5 = None
 
         
-    out = [C1, C2, C3, C4, C5]
+    out = [C1, C2, C3, C4, ]
     
     L0 = ResizeImage(to_tuple(1),interpolation='bilinear')(out[0])
     L1 = ResizeImage(to_tuple(1),interpolation='bilinear')(out[1])

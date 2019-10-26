@@ -1,3 +1,8 @@
+
+These are the experiment files for the Kaggle competition .... The basic strategy was using a Siamesse network based architecture. The extracted features were then 
+passed through another neural net to give either a sigmoid layer kind of output or a contrastive loss output. It was observed that the one having sigmoid output performed better.
+Also, by taking pretrained models on faces, a great boost in accuracy was observed even with small image size.
+
 train0:
 Used normal Resnet with contrastive loss. The network architecture and style was derived from keras website. This performed very badly. The accuracy metric remained arounf 50 percent for a couple
 of epochs. I tried different learning rate with different optimizers but in vain. The data generator used here is my own. Might be some problem with it. Need to check it again.
